@@ -58,17 +58,18 @@
     </div>
 
 <script>
-    // 1. إعدادات قاعدة البيانات (نفس اللي في ملفك الأساسي)
-     const SB_URL = "https://ixzuotmqgdnlrkalwyyg.supabase.co", SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4enVvdG1xZ2RubHJrYWx3eXlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NDAwMTQsImV4cCI6MjA5MTExNjAxNH0.NrU4rKVfrHWB0x220iIGzr-aXGm_5EljV4CCoYFnojo";
+    // 1. إعدادات قاعدة البيانات (الكي سليم كدا)
+    const SB_URL = "https://ixzuotmqgdnlrkalwyyg.supabase.co";
+    const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4enVvdG1xZ2RubHJrYWx3eXlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NDAwMTQsImV4cCI6MjA5MTExNjAxNH0.NrU4rKVfrHWB0x220iIGzr-aXGm_5EljV4CCoYFnojo";
     const _supabase = supabase.createClient(SB_URL, SB_KEY);
-    // 2. تعريف المستخدم (عشان البوكماركس تشتغل)
-    let currentUser = localStorage.getItem('mouser');
 
-    // 3. لو مفيش مستخدم مسجل، يرجعه لصفحة اللوج إن الأساسية (اختياري)
-    if (!currentUser) {
-        window.location.href = "index.html"; 
-    }
+    // 2. تعريف المستخدم - لو ملقاش مورسير، هياخد اسمك الافتراضي عشان الداتا تظهر
+    let currentUser = localStorage.getItem('mouser') || "Mohamed Kholeif";
 
+    // 3. شيلنا سطر التحويل (window.location) عشان هو اللي بيصفر الصفحة على فيرسل
+    console.log("Logged in as:", currentUser);
+
+    // ... باقي المتغيرات (SURAH_PAGES, JUZ_NAMES, إلخ) ...
 
 
 // ============================================================
