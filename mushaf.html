@@ -1,0 +1,1977 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mo's Mushaf 📖</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Amiri+Quran&family=Reem+Kufi:wght@500&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        /* ضيف هنا الـ CSS الخاص بالمصحف فقط (اللي بيبدأ بكلمة mushaf) */
+        :root { --dark-blue: #001f3f; --orange: #ff851b; }
+        body { background: var(--dark-blue); font-family: sans-serif; margin: 0; }
+        
+        /* الستايل اللي بعتهولك في كود الجافا سكريبت بيضيف نفسه تلقائياً */
+        /* لكن ضيف دي عشان الـ Toast بتاع النسخ يشتغل */
+        .copy-toast {
+            position: fixed; bottom: 100px; left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(0, 31, 63, 0.95); color: white;
+            padding: 12px 25px; border-radius: 50px; border: 2px solid var(--orange);
+            z-index: 300000; font-weight: bold; transition: all 0.4s; opacity: 0;
+        }
+        .copy-toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        .category-box {
+    background: white;
+    border-radius: 20px;
+    padding: 25px 15px;
+    text-align: center;
+    box-shadow: 6px 6px 0px var(--orange);
+    border: 3px solid #00152b;
+    cursor: pointer;
+    transition: 0.3s;
+    color: #001f3f;
+    font-weight: bold;
+}
+.category-box:active { transform: scale(0.95); }
+
+/* تنسيق كروت البوكمارك اللي تحت */
+#mushaf-bookmarks-preview div {
+    direction: rtl; /* عشان الكلام العربي يظبط */
+}
+   </style>
+</head>
+
+<body>
+
+    <div id="mushaf-section" style="width: 100%; display: flex; flex-direction: column; align-items: center; padding: 20px; min-height: 100vh; background-color: var(--dark-blue);">
+        
+        <div id="mushaf-selector" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 92%; max-width: 600px; margin-top: 20px;">
+            </div>
+
+        <div id="mushaf-bookmarks-preview" style="width: 92%; max-width: 600px; margin-top: 20px;">
+            </div>
+
+    </div>
+
+<script>
+    // 1. إعدادات قاعدة البيانات (نفس اللي في ملفك الأساسي)
+     const SB_URL = "https://ixzuotmqgdnlrkalwyyg.supabase.co", SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4enVvdG1xZ2RubHJrYWx3eXlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NDAwMTQsImV4cCI6MjA5MTExNjAxNH0.NrU4rKVfrHWB0x220iIGzr-aXGm_5EljV4CCoYFnojo";
+    const _supabase = supabase.createClient(SB_URL, SB_KEY);
+    // 2. تعريف المستخدم (عشان البوكماركس تشتغل)
+    let currentUser = localStorage.getItem('mouser');
+
+    // 3. لو مفيش مستخدم مسجل، يرجعه لصفحة اللوج إن الأساسية (اختياري)
+    if (!currentUser) {
+        window.location.href = "index.html"; 
+    }
+
+
+
+// ============================================================
+// ✅ متغيرات المصحف
+// ============================================================
+let currentMushafPage     = 1;
+let mushafMode            = 'reading';
+let quranBookmarks        = [];
+let mushafShowTranslation = false;
+let mushafViewMode        = 'text'; 
+let mushafZoom            = 24; 
+let currentReciter        = 'Alafasy_128kbps';
+let currentAudio          = null;
+let mushafSurahList       = [];
+let pendingHighlight      = null;
+let ayahPickerSelectedSurah = 1; 
+
+// استبدل المصفوفة دي في كودك يا Mo
+const SURAH_PAGES = [
+    1, 2, 50, 77, 106, 128, 151, 177, 187, 208, 221, 235, 249, 255, 262, 267, 282, 293, 305, 312, 322, 332, 342, 350, 359, 367, 377, 385, 396, 404, 
+    411, 415, 418, 428, 434, 440, 446, 453, 458, 467, 477, 483, 489, 496, 499, 502, 507, 511, 515, 518, 520, 523, 526, 528, 531, 534, 537, 542, 545, 549, 
+    551, 553, 554, 556, 558, 560, 562, 564, 566, 568, 570, 572, 574, 575, 577, 578, 580, 582, 583, 585, 587, 589, 591, 593, 594, 595, 596, 597, 598, 599, 
+    600, 601, 601, 602, 602, 603, 603, 604, 604, 604, 600, 601, 601, 602, 602, 603, 603, 604, 604, 604, 604, 604, 604, 604
+];
+const JUZ_NAMES = [
+    'الم','سيقول','تلك الرسل','لن تنالوا','والمحصنات',
+    'لا يحب الله','وإذا سمعوا','ولو أننا','قال الملأ','واعلموا',
+    'يعتذرون','وما من دابة','وما أبرئ','ربما','سبحان الذي',
+    'قال ألم','اقترب','قد أفلح','وقال الذين','أمن خلق',
+    'اتل ما أوحي','ومن يقنت','وما لي','فمن أظلم','إليه يرد',
+    'حم','قال فما خطبكم','قد سمع الله','تبارك الذي','عم يتساءلون'
+];
+
+const RECITERS = {
+    'Alafasy_128kbps'                    : '🎙️ العفاسي',
+    'Abdurrahmaan_As-Sudais_192kbps'     : '🎙️ السديس',
+    'Husary_128kbps'                     : '🎙️ الحصري',
+    'Minshawi_Murattal_128kbps'          : '🎙️ المنشاوي مرتل',
+    'Minshawy_Mujawwad_128kbps'          : '🎙️ المنشاوي مجود',
+    'Mohammad_al_Tablaway_128kbps'       : '🎙️ الطبلاوي',
+    'Maher_AlMuaiqly_128kbps'            : '🎙️ ماهر المعيقلي',
+    'Yasser_Ad-Dussary_128kbps'          : '🎙️ ياسر الدوسري',
+    'Nasser_Alqatami_128kbps'            : '🎙️ ناصر القطامي',
+    'Ahmed_ibn_Ali_al-Ajamy_128kbps_NEW' : '🎙️ أحمد العجمي',
+    'AbdulSamad_128kbps'                 : '🎙️ عبد الصمد',
+    'Ibrahim_Akhdar_128kbps'             : '🎙️ إبراهيم الأخضر',
+};
+
+const JUZ_PAGES = [
+     1, 22, 42, 62, 82,102,121,142,162,182,
+    201,221,241,261,282,302,322,342,362,382,
+    402,422,442,462,482,502,522,542,562,582
+];
+
+function getJuzFromPage(page) {
+    let juz = 1;
+    for (let i = 0; i < JUZ_PAGES.length; i++) {
+        if (page >= JUZ_PAGES[i]) juz = i + 1; else break;
+    }
+    return juz;
+}
+
+// ============================================================
+// ✅ زر الانتقال العائم (يظهر دائمًا كديفولت)
+// ============================================================
+function initGlobalMushafNav() {
+    if (document.getElementById('global-mushaf-nav')) return;
+
+    const btn = document.createElement('div');
+    btn.id = 'global-mushaf-nav';
+    btn.innerHTML = '📖';
+    btn.style.cssText = `
+        position:fixed;
+        bottom:20px;
+        left:20px;
+        z-index:500;
+        background:rgba(0, 31, 63, 0.18);
+        color:var(--orange, #ff851b);
+        width:46px; height:46px;
+        border-radius:50%;
+        cursor:pointer;
+        display:flex; align-items:center; justify-content:center;
+        font-size:22px;
+        border:1.5px solid rgba(255,133,27,0.35);
+        backdrop-filter:blur(4px);
+        -webkit-backdrop-filter:blur(4px);
+        box-shadow:0 2px 10px rgba(0,0,0,0.12);
+        transition:transform 0.2s, background 0.2s;
+        -webkit-tap-highlight-color:transparent;
+    `;
+
+    btn.onmouseenter = () => btn.style.background = 'rgba(0,31,63,0.35)';
+    btn.onmouseleave = () => btn.style.background = 'rgba(0,31,63,0.18)';
+
+    // ✅ addEventListener أكثر أماناً على Android من ontouchstart/ontouchend
+    btn.addEventListener('touchstart', () => btn.style.transform = 'scale(0.88)', { passive: true });
+    btn.addEventListener('touchend',   () => btn.style.transform = 'scale(1)',    { passive: true });
+
+    // ✅ الإصلاح المنطقي: افتح المصحف لو مش موجود، وروّح للناف لو موجود
+    btn.addEventListener('click', () => {
+        if (!document.getElementById('mushaf-overlay')) {
+            openMushaf('reading'); // ✅ يفتح المصحف من أوله
+        } else {
+            showMushafNav();       // ✅ يفتح التنقل لو المصحف شغال
+        }
+    });
+
+    const app = document.getElementById('journal-app');
+    if (app) app.appendChild(btn);
+    else document.body.appendChild(btn);
+}
+
+setTimeout(initGlobalMushafNav, 500);
+// ============================================================
+// ✅ جلب السور
+// ============================================================
+async function fetchSurahList() {
+    if (mushafSurahList.length > 0) return;
+    try {
+        const res  = await fetch('https://api.alquran.cloud/v1/surah');
+        const json = await res.json();
+        if (json.code === 200) mushafSurahList = json.data;
+    } catch(e) {}
+}
+
+// ============================================================
+// ✅ جلب البوكماركس
+// ============================================================
+async function fetchQuranBookmarks() {
+    if (typeof currentUser === 'undefined' || !currentUser) return;
+    if (typeof _supabase === 'undefined') return;
+    try {
+        const { data, error } = await _supabase
+            .from('quran_bookmarks').select('*')
+            .eq('owner_name', currentUser)
+            .order('created_at', { ascending: false });
+        if (!error && data) quranBookmarks = data;
+    } catch(e) {}
+}
+
+// ============================================================
+// ✅ فتح المصحف - يروح لآخر بوكمارك
+// ============================================================
+async function openMushaf(mode) {
+    mushafMode = mode;
+    // إظهار لودر بسيط
+    const container = document.getElementById('mushaf-section');
+    if(container) container.style.opacity = '0.5';
+
+    await Promise.all([fetchQuranBookmarks(), fetchSurahList()]);
+
+    // ✅ البحث عن آخر صفحة مسجلة لهذا المستخدم في هذا الوضع
+    const lastBM = quranBookmarks
+        .filter(b => b.mode === mode)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+    if (lastBM) {
+        currentMushafPage = parseInt(lastBM.page);
+        if (lastBM.ayah_number) {
+            pendingHighlight = { surah: lastBM.surah_number, ayah: lastBM.ayah_number };
+        }
+    } else {
+        // لو مفيش بوكمارك، نرجع لآخر صفحة فتحها يدوياً
+        currentMushafPage = parseInt(localStorage.getItem(`mushaf_last_page_${mode}`) || 1);
+    }
+
+    if(container) container.style.opacity = '1';
+    renderMushaf();
+}
+// ============================================================
+// ✅ الـ Overlay الرئيسي
+// ============================================================
+function renderMushaf() {
+    if (!document.getElementById('mushaf-responsive-css')) {
+        const s = document.createElement('style');
+        s.id = 'mushaf-responsive-css';
+        s.textContent = `
+            @media (max-width: 768px) {
+                .mushaf-bottom-nav { display: flex !important; visibility: visible !important; opacity: 1 !important; }
+                .mushaf-zoom-slider { display: block !important; width: 70px !important; margin: 0 !important; }
+            }
+            .mushaf-toolbar-btn {
+                width:32px; height:32px; flex-shrink:0;
+                border-radius:50%; display:flex; align-items:center;
+                justify-content:center; cursor:pointer; font-size:15px;
+                background:rgba(255,255,255,0.1); transition:background 0.2s;
+            }
+            .mushaf-toolbar-btn:active { background:rgba(255,255,255,0.3) !important; }
+            .mobile-zoom-container {
+                display: flex; justify-content: center; align-items: center;
+                background: rgba(255, 255, 255, 0.1); padding: 4px;
+                border-radius: 8px; margin-top: 4px; width: 100%;
+            }
+        `;
+        document.head.appendChild(s);
+    }
+
+    currentMushafPage = parseInt(currentMushafPage);
+    if (isNaN(currentMushafPage) || currentMushafPage < 1) {
+        currentMushafPage = parseInt(localStorage.getItem(`mushaf_last_page_${mushafMode}`)) || 1;
+    }
+
+    document.getElementById('mushaf-overlay')?.remove();
+    stopAudio();
+
+    const isPageBookmarked = quranBookmarks.some(
+        b => b.page === currentMushafPage && b.mode === mushafMode && !b.ayah_number
+    );
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mushaf-overlay';
+    overlay.style.cssText = `
+        position:fixed; top:0; left:0;
+        width:100vw; height:100vh;
+        background:#fdfcf0;
+        z-index:2147483647;
+        display:flex; flex-direction:column; overflow:hidden;
+    `;
+
+    // ✅ كل الأزرار بـ id بدون onclick في الـ HTML
+    overlay.innerHTML = `
+        <div style="flex-shrink:0;background:var(--dark-blue,#001f3f);
+            padding:8px 10px;display:flex;align-items:center;gap:5px;
+            box-shadow:0 2px 10px rgba(0,0,0,0.3); justify-content:space-between;">
+
+            <div id="btn-close-mushaf" class="mushaf-toolbar-btn"
+                style="background:rgba(255,100,100,0.25);color:white;font-size:16px;">✕</div>
+
+            <div style="flex:1;min-width:0;text-align:center;overflow:hidden;padding:0 2px;">
+                <div id="mushaf-surah-title"
+                    style="color:var(--orange,#ff851b);font-weight:bold;
+                    font-size:clamp(10px,3vw,13px);
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                    ${mushafMode === 'tahajjud' ? '🌙' : '📖'} جاري التحميل...
+                </div>
+                <div id="mushaf-page-meta"
+                    style="color:white;font-size:clamp(9px,2.5vw,11px);
+                    opacity:0.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                    ص ${currentMushafPage}/604 • ج ${getJuzFromPage(currentMushafPage)}
+                </div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; align-items:center; gap:2px; flex-shrink:0;">
+                <div style="display:flex; align-items:center; gap:4px;">
+                    <div id="btn-view-mode" class="mushaf-toolbar-btn">${mushafViewMode === 'text' ? '🖼️' : '📝'}</div>
+                    <div id="btn-show-nav" class="mushaf-toolbar-btn">🗂️</div>
+                    <div id="btn-translation" class="mushaf-toolbar-btn"
+                        style="background:${mushafShowTranslation ? 'var(--orange,#ff851b)' : 'rgba(255,255,255,0.1)'};">🌍</div>
+                    <div id="bookmark-btn" class="mushaf-toolbar-btn"
+                        style="background:${isPageBookmarked ? 'var(--orange,#ff851b)' : 'rgba(255,255,255,0.1)'};">${isPageBookmarked ? '🔖' : '🤍'}</div>
+                </div>
+                <div class="mobile-zoom-container">
+                    <input id="zoom-range-input" type="range" min="14" max="40" value="${mushafZoom}"
+                        class="mushaf-zoom-slider"
+                        style="accent-color:var(--orange,#ff851b); height:18px;">
+                </div>
+            </div>
+        </div>
+
+        <div style="flex-shrink:0;background:#001f3f;padding:6px 10px;display:flex;gap:6px;align-items:center;min-width:0;">
+            <input id="mushaf-search-input" type="text" placeholder="🔍 بحث..."
+                style="flex:1;min-width:0;width:0;padding:7px 10px;border-radius:20px;
+                border:1px solid var(--orange,#ff851b);background:rgba(255,255,255,0.1);
+                color:white;font-size:clamp(11px,3vw,13px);direction:rtl;outline:none;
+                font-family:'Amiri Quran',serif;">
+
+            <div id="btn-reciter-picker"
+                style="flex-shrink:0;width:clamp(44px,22vw,90px);padding:6px;border-radius:8px;
+                border:1px solid var(--orange,#ff851b);background:#002d5a;color:white;
+                font-size:11px;cursor:pointer;display:flex;align-items:center;gap:2px;
+                overflow:hidden;box-sizing:border-box;">
+                <span style="flex-shrink:0;">🎙️</span>
+                <span id="current-reciter-label"
+                    style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;">
+                    ${RECITERS[currentReciter]?.replace('🎙️ ', '') || 'القارئ'}
+                </span>
+            </div>
+        </div>
+
+        <div id="mushaf-search-results"
+            style="display:none;flex-shrink:0;max-height:220px;overflow-y:auto;
+            background:white;border-bottom:2px solid var(--orange,#ff851b);z-index:1000;"></div>
+
+        <div id="mushaf-page-content"
+            style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
+            padding:15px;direction:rtl;background:#fdfcf0;">
+            <div style="text-align:center;padding-top:35%;font-size:35px;">⏳</div>
+        </div>
+
+        <div class="mushaf-bottom-nav"
+            style="flex-shrink:0;background:var(--dark-blue,#001f3f);padding:10px 12px;
+            display:flex !important;align-items:center;gap:8px;
+            box-shadow:0 -2px 10px rgba(0,0,0,0.3);z-index:1000;">
+
+            <button id="btn-prev-page" ${currentMushafPage <= 1 ? 'disabled' : ''}
+                style="flex:1;padding:11px;background:rgba(255,255,255,0.1);
+                border:2px solid var(--orange,#ff851b);border-radius:12px;
+                color:white;font-size:20px;cursor:pointer;
+                opacity:${currentMushafPage <= 1 ? '0.4' : '1'};">‹</button>
+
+            <input id="page-jump-input" type="number" min="1" max="604" value="${currentMushafPage}"
+                style="width:70px;text-align:center;padding:9px;border-radius:10px;
+                border:2px solid var(--orange,#ff851b);background:rgba(255,255,255,0.1);
+                color:white;font-size:16px;font-weight:bold;outline:none;">
+
+            <button id="btn-next-page" ${currentMushafPage >= 604 ? 'disabled' : ''}
+                style="flex:1;padding:11px;border:none;border-radius:12px;color:white;
+                font-size:20px;cursor:pointer;
+                background:${currentMushafPage >= 604 ? 'rgba(255,255,255,0.15)' : 'var(--orange,#ff851b)'};
+                opacity:${currentMushafPage >= 604 ? '0.4' : '1'};">›</button>
+
+            <button id="btn-show-bookmarks"
+                style="width:44px;height:44px;flex-shrink:0;background:rgba(255,255,255,0.1);
+                border:2px solid var(--orange,#ff851b);border-radius:50%;font-size:18px;
+                cursor:pointer;display:flex;align-items:center;justify-content:center;">📚</button>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // ✅ ربط كل الأحداث بـ addEventListener بعد الـ append مباشرة (Android-safe)
+    document.getElementById('btn-close-mushaf').addEventListener('click', closeMushaf);
+    document.getElementById('btn-view-mode').addEventListener('click', toggleMushafViewMode);
+    document.getElementById('btn-show-nav').addEventListener('click', showMushafNav);
+    document.getElementById('btn-translation').addEventListener('click', toggleTranslation);
+    document.getElementById('bookmark-btn').addEventListener('click', togglePageBookmark);
+    document.getElementById('btn-reciter-picker').addEventListener('click', showReciterPicker);
+    document.getElementById('btn-prev-page').addEventListener('click', () => changeMushafPage(-1));
+    document.getElementById('btn-next-page').addEventListener('click', () => changeMushafPage(1));
+    document.getElementById('btn-show-bookmarks').addEventListener('click', showBookmarks);
+    document.getElementById('zoom-range-input').addEventListener('input', function() { changeMushafZoom(this.value); });
+    document.getElementById('mushaf-search-input').addEventListener('input', function() { mushafFuzzySearch(this.value); });
+    document.getElementById('page-jump-input').addEventListener('change', function() { jumpMushafPage(this.value); });
+
+    localStorage.setItem(`mushaf_last_page_${mushafMode}`, currentMushafPage);
+    loadPageText(currentMushafPage);
+
+    // ✅ Swipe للتنقل بين الصفحات
+    setTimeout(() => {
+        const pc = document.getElementById('mushaf-page-content');
+        if (!pc) return;
+        let sx = 0, sy = 0;
+        pc.addEventListener('touchstart', e => {
+            sx = e.touches[0].clientX;
+            sy = e.touches[0].clientY;
+        }, { passive: true });
+        pc.addEventListener('touchend', e => {
+            const dx = e.changedTouches[0].clientX - sx;
+            const dy = Math.abs(e.changedTouches[0].clientY - sy);
+            if (Math.abs(dx) > 70 && dy < 90) {
+                if (dx < 0) changeMushafPage(1);
+                else changeMushafPage(-1);
+            }
+        }, { passive: true });
+    }, 250);
+}
+// ============================================================
+// ✅ دوال الزوم وتغيير العرض
+// ============================================================
+function changeMushafZoom(val) {
+    mushafZoom = val;
+    document.querySelectorAll('.mushaf-text-span').forEach(e => e.style.fontSize = val + 'px');
+    const img = document.getElementById('mushaf-image-view');
+    if (img) img.style.width = (val * 4) + '%';
+}
+
+function toggleMushafViewMode() {
+    mushafViewMode = mushafViewMode === 'text' ? 'image' : 'text';
+    loadPageText(currentMushafPage);
+}
+
+// ============================================================
+// ✅ تحديث معلومات الهيدر
+// ============================================================
+function updatePageMeta(ayahs) {
+    // ✅ FIX 1: تحديث اسم السورة في العنوان
+    const titleEl = document.getElementById('mushaf-surah-title');
+    if (titleEl && ayahs?.length) {
+        const surahsOnPage = [...new Set(ayahs.map(a => a.surah.name))];
+        const icon = (typeof mushafMode !== 'undefined' && mushafMode === 'tahajjud') ? '🌙' : '📖';
+        titleEl.textContent = surahsOnPage.length === 1
+            ? `${icon} ${surahsOnPage[0]}`
+            : `${icon} ${surahsOnPage[0]} • ${surahsOnPage[1] || ''}`;
+    }
+
+    // ... باقي الكود القديم للـ mushaf-page-meta يفضل زي ما هو
+    const meta = document.getElementById('mushaf-page-meta');
+    if (!meta || !ayahs?.length) return;
+    // ... إلخ
+}
+// ============================================================
+// ✅ جلب نص الصفحة - مع retry تلقائي 3 مرات، وعرض مستمر
+// ============================================================
+async function loadPageText(pageNum, retryCount = 0) {
+    const container = document.getElementById('mushaf-page-content');
+    if (!container) return;
+
+    if (retryCount === 0) {
+        container.innerHTML = `
+            <div style="text-align:center;padding-top:35%;">
+                <div style="font-size:35px;animation:spin 1s linear infinite;">⏳</div>
+                <div style="color:#aaa;margin-top:10px;font-size:13px;">جاري تحميل الصفحة...</div>
+            </div>`;
+    }
+
+    try {
+        const ctrl  = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 10000);
+        const requests = [
+            fetch(`https://api.alquran.cloud/v1/page/${pageNum}/quran-uthmani`, { signal: ctrl.signal })
+        ];
+        if (mushafShowTranslation)
+            requests.push(fetch(`https://api.alquran.cloud/v1/page/${pageNum}/en.sahih`, { signal: ctrl.signal }));
+
+        const responses = await Promise.all(requests);
+        clearTimeout(timer);
+
+        const arJson = await responses[0].json();
+        const enJson = responses[1] ? await responses[1].json() : null;
+        if (arJson.code !== 200) throw new Error('API error');
+
+        const ayahs   = arJson.data.ayahs;
+        const enAyahs = enJson?.data?.ayahs || [];
+        updatePageMeta(ayahs);
+
+        if (mushafViewMode === 'image') {
+            container.innerHTML = `
+                <div style="text-align:center;width:100%;height:100%;overflow:auto;">
+                    <img id="mushaf-image-view"
+                        src="https://quran.ksu.edu.sa/png_big/${pageNum}.png"
+                        style="max-width:none;width:${mushafZoom * 4}%;transition:width 0.3s;margin:auto;display:block;">
+                </div>`;
+            return;
+        }
+
+        const surahs = {};
+        ayahs.forEach((a, i) => {
+            const k = a.surah.number;
+            if (!surahs[k]) surahs[k] = { name: a.surah.name, ayahs: [], enAyahs: [] };
+            surahs[k].ayahs.push(a);
+            if (enAyahs[i]) surahs[k].enAyahs.push(enAyahs[i]);
+        });
+
+        let html = '';
+        for (const key in surahs) {
+            const s         = surahs[key];
+            const firstAyah = s.ayahs[0];
+            if (firstAyah.numberInSurah === 1) {
+                html += `
+                    <div style="text-align:center;margin:15px 0 10px;
+                        background:linear-gradient(135deg,var(--dark-blue,#001f3f),#003366);
+                        color:white;border-radius:12px;padding:12px;
+                        font-family:'Amiri Quran',serif;font-size:20px;
+                        box-shadow:0 3px 10px rgba(0,0,0,0.2);">۩ ${s.name} ۩</div>`;
+                if (firstAyah.surah.number !== 1 && firstAyah.surah.number !== 9) {
+                    html += `
+                        <div style="text-align:center;font-family:'Amiri Quran',serif;
+                            font-size:clamp(18px,5vw,24px);color:var(--dark-blue,#001f3f);
+                            margin:10px 0;line-height:2;">
+                            بِسۡمِ ٱللَّهِ ٱلرَّحۡمَٰنِ ٱلرَّحِيمِ</div>`;
+                }
+            }
+            html += `<div style="text-align:justify;direction:rtl;padding:10px;line-height:2.5;">`;
+            s.ayahs.forEach((a, i) => {
+                const enText = s.enAyahs[i]?.text || '';
+                const isAyahBookmarked = quranBookmarks.some(
+                    b => Number(b.surah_number) === a.surah.number && Number(b.ayah_number) === a.numberInSurah
+                );
+                // ✅ data attributes بدل onclick
+                const safeText  = a.text.substring(0, 40).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                const safeSName = a.surah.name.replace(/'/g, "\\'");
+                const bg = isAyahBookmarked ? 'rgba(255,133,27,0.2)' : 'transparent';
+                html += `
+                    <span id="ayah-${a.surah.number}-${a.numberInSurah}" class="mushaf-text-span"
+                        style="display:inline;line-height:2.2;font-family:'Amiri Quran',serif;
+                        font-size:${mushafZoom}px;color:#1a1a2e;background:${bg};
+                        border-radius:4px;padding:0 2px;transition:background 0.4s;">
+                        ${a.text}
+                        <span class="ayah-num-btn"
+                            data-surah="${a.surah.number}"
+                            data-surah-name="${safeSName}"
+                            data-ayah="${a.numberInSurah}"
+                            data-text="${safeText}"
+                            style="display:inline-block;width:28px;height:28px;
+                            background:var(--orange,#ff851b);color:white;border-radius:50%;
+                            font-size:11px;text-align:center;line-height:28px;
+                            font-family:sans-serif;margin:0 4px;vertical-align:middle;
+                            cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2);">
+                            ${a.numberInSurah}
+                        </span>
+                        ${mushafShowTranslation && enText ? `
+                            <span style="display:block;font-size:14px;color:#666;direction:ltr;
+                                text-align:left;margin:10px 0;font-family:sans-serif;font-style:italic;">
+                                "${enText}"</span>` : ''}
+                    </span> `;
+            });
+            html += `</div>`;
+        }
+
+        container.innerHTML = html;
+
+        // ✅ Event delegation بدل onclick على كل آية
+        if (container._ayahHandler) container.removeEventListener('click', container._ayahHandler);
+        container._ayahHandler = (e) => {
+            const btn = e.target.closest('.ayah-num-btn');
+            if (!btn) return;
+            showAyahMenu(
+                parseInt(btn.dataset.surah),
+                btn.dataset.surahName,
+                parseInt(btn.dataset.ayah),
+                btn.dataset.text,
+                e
+            );
+        };
+        container.addEventListener('click', container._ayahHandler);
+
+        if (pendingHighlight) {
+            const { surah, ayah } = pendingHighlight;
+            pendingHighlight = null;
+            setTimeout(() => scrollAndHighlightAyah(surah, ayah), 300);
+        }
+
+    } catch(err) {
+        if (retryCount < 3) {
+            const waitSec = (retryCount + 1) * 1500;
+            container.innerHTML = `
+                <div style="text-align:center;padding-top:30%;">
+                    <div style="font-size:30px;">🔄</div>
+                    <div style="color:#aaa;margin-top:10px;font-size:13px;">
+                        إعادة المحاولة... (${retryCount + 1}/3)</div>
+                </div>`;
+            await new Promise(r => setTimeout(r, waitSec));
+            return loadPageText(pageNum, retryCount + 1);
+        }
+        container.innerHTML = `
+            <div style="text-align:center;padding:40px;">
+                <div style="font-size:40px;margin-bottom:15px;">❌</div>
+                <div style="font-size:16px;font-weight:bold;color:var(--dark-blue,#001f3f);">تعذّر التحميل</div>
+                <div style="font-size:12px;color:#aaa;margin-top:8px;">تحقق من الإنترنت</div>
+                <button id="mushaf-retry-btn"
+                    style="background:var(--orange,#ff851b);color:white;border:none;
+                    padding:10px 20px;border-radius:10px;cursor:pointer;
+                    font-size:14px;margin-top:15px;">🔄 إعادة المحاولة</button>
+            </div>`;
+        // ✅ addEventListener بدل onclick
+        document.getElementById('mushaf-retry-btn')
+            ?.addEventListener('click', () => loadPageText(pageNum));
+    }
+}
+
+// ============================================================
+// ✅ قائمة تشغيل/تفضيل عند الضغط على رقم الآية
+// ============================================================
+function showAyahMenu(surahNum, surahName, ayahNum, previewText, event) {
+    event.stopPropagation();
+    closeAyahMenu();
+
+    const menu = document.createElement('div');
+    menu.id = 'ayah-context-menu';
+
+    const rect      = event.target.getBoundingClientRect();
+    const menuWidth = 220;
+    let leftPos = rect.left + window.scrollX - (menuWidth / 2) + (rect.width / 2);
+    leftPos = Math.max(8, Math.min(leftPos, window.innerWidth - menuWidth - 8));
+    const topPos = rect.bottom + window.scrollY + 8;
+
+    menu.style.cssText = `
+        position:absolute; top:${topPos}px; left:${leftPos}px;
+        width:${menuWidth}px; background:white; border-radius:16px;
+        box-shadow:0 8px 30px rgba(0,0,0,0.22);
+        border:2px solid var(--orange,#ff851b); z-index:99999;
+        overflow:hidden; animation:modalPop 0.2s ease; direction:rtl;`;
+
+    // ✅ Header
+    const header = document.createElement('div');
+    header.style.cssText = `padding:7px 14px;background:var(--dark-blue,#001f3f);
+        color:white;font-family:'Amiri Quran',serif;font-size:12px;text-align:center;`;
+    header.textContent = `${surahName} • آية ${ayahNum}`;
+    menu.appendChild(header);
+
+    // ✅ أزرار الأكشن بـ createElement + addEventListener
+    const actionsRow = document.createElement('div');
+    actionsRow.style.cssText = `display:flex;justify-content:space-evenly;
+        align-items:center;padding:12px 8px;`;
+
+    const actions = [
+        { icon: '🔖', fn: () => { toggleAyahBookmark(surahNum, surahName, ayahNum, previewText); closeAyahMenu(); } },
+        { icon: '📋', fn: () => { copyAyahText(surahNum, ayahNum); closeAyahMenu(); } },
+        { icon: '🔊', fn: () => { playAyah(surahNum, ayahNum); closeAyahMenu(); } },
+        { icon: '🌐', fn: () => { showTafsir(surahNum, ayahNum); closeAyahMenu(); } },
+    ];
+
+    actions.forEach(a => {
+        const btn = document.createElement('div');
+        btn.style.cssText = `width:46px;height:46px;border-radius:14px;
+            background:#f5f5f5;border:1px solid #eee;
+            display:flex;align-items:center;justify-content:center;
+            font-size:22px;cursor:pointer;
+            transition:transform 0.1s,background 0.15s;
+            -webkit-tap-highlight-color:transparent;`;
+        btn.textContent = a.icon;
+        btn.addEventListener('touchstart', () => {
+            btn.style.transform  = 'scale(0.88)';
+            btn.style.background = '#fff0e0';
+        }, { passive: true });
+        btn.addEventListener('touchend', () => { btn.style.transform = 'scale(1)'; }, { passive: true });
+        btn.addEventListener('click', a.fn);
+        actionsRow.appendChild(btn);
+    });
+
+    menu.appendChild(actionsRow);
+    document.body.appendChild(menu);
+
+    setTimeout(() => {
+        document.addEventListener('click',      closeAyahMenu, { once: true });
+        document.addEventListener('touchstart', closeAyahMenu, { once: true, passive: true });
+    }, 10);
+}
+function closeAyahMenu() {
+    document.getElementById('ayah-context-menu')?.remove();
+}
+// ============================================================
+// ✅ Scroll + تعليم الآية
+// ============================================================
+function scrollAndHighlightAyah(surahNum, ayahNum) {
+    const el = document.getElementById(`ayah-${surahNum}-${ayahNum}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    el.style.background  = 'rgba(255,133,27,0.4)';
+    el.style.transition = 'background 0.5s';
+
+    setTimeout(() => {
+        const isBookmarked = quranBookmarks.some(b => Number(b.surah_number) === surahNum && Number(b.ayah_number) === ayahNum);
+        el.style.background  = isBookmarked ? 'rgba(255,133,27,0.2)' : 'transparent';
+    }, 3000);
+}
+
+// ============================================================
+// ✅ الانتقال من البحث مع تعليم
+// ============================================================
+function goToSearchResult(page, surahNum, ayahNum) {
+    if (!page) return; 
+    
+    // ✅ تأمين رقم الصفحة: المصحف من 1 لـ 604 فقط
+    let p = parseInt(page);
+    if (p > 604) p = 604;
+    if (p < 1) p = 1;
+    
+    currentMushafPage = p; 
+    
+    // إخفاء نتائج البحث (الصغيرة والعامة)
+    const resultsDiv = document.getElementById('mushaf-search-results');
+    if (resultsDiv) resultsDiv.style.display = 'none';
+
+    mushafViewMode = 'text'; 
+    
+    // تجهيز بيانات التظليل والسكرول
+    // لو مفيش رقم آية (زي الانتقال لسورة) بنخليها أول آية
+    pendingHighlight = { 
+        surah: parseInt(surahNum) || 0, 
+        ayah: parseInt(ayahNum) || 1 
+    };
+
+    // لو المصحف مقفول أصلاً نفتحه، لو مفتوح نعمل رندر فوراً
+    if (!document.getElementById('mushaf-overlay')) {
+        openMushaf(mushafMode || 'reading');
+    } else {
+        renderMushaf();
+    }
+}
+// ============================================================
+// ✅ نافذة الانتقال مع بحث موحد شامل
+// ============================================================
+async function showMushafNav() {
+    document.getElementById('mushaf-nav-panel')?.remove();
+    await fetchSurahList();
+
+    const panel = document.createElement('div');
+    panel.id = 'mushaf-nav-panel';
+    panel.style.cssText = `
+        position:fixed;bottom:0;left:0;right:0;z-index:10030;
+        background:white;border-radius:25px 25px 0 0;
+        box-shadow:0 -10px 40px rgba(0,0,0,0.4);
+        max-height:85vh;display:flex;flex-direction:column;
+        animation:slideUp 0.3s ease-out;`;
+
+    if (!document.getElementById('mushaf-nav-style')) {
+        const style = document.createElement('style');
+        style.id = 'mushaf-nav-style';
+        style.innerHTML = `@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`;
+        document.head.appendChild(style);
+    }
+
+    // ✅ بدون أي onclick أو oninput في الـ HTML
+    panel.innerHTML = `
+        <div style="padding:16px 20px;background:var(--dark-blue,#001f3f);
+            border-radius:25px 25px 0 0;flex-shrink:0;
+            display:flex;align-items:center;justify-content:space-between;">
+            <span style="color:var(--orange,#ff851b);font-weight:bold;font-size:18px;
+                font-family:'Amiri Quran',serif;">🗂️ قائمة الانتقال السريع</span>
+            <div id="nav-close-btn"
+                style="color:white;font-size:24px;cursor:pointer;width:35px;height:35px;
+                display:flex;align-items:center;justify-content:center;
+                background:rgba(255,255,255,0.1);border-radius:50%;">✕</div>
+        </div>
+
+        <div style="padding:12px;flex-shrink:0;background:#fdfcf0;border-bottom:1px solid #eee;">
+            <input type="text" id="nav-unified-search"
+                placeholder="🔍 ابحث عن سورة، جزء، أو رقم صفحة..."
+                style="width:100%;padding:12px 16px;border-radius:15px;
+                border:2px solid var(--orange,#ff851b);font-size:15px;
+                direction:rtl;outline:none;box-sizing:border-box;
+                font-family:'Amiri Quran',serif;box-shadow:0 4px 10px rgba(0,0,0,0.05);">
+        </div>
+
+        <div id="nav-tabs-bar" style="display:flex;flex-shrink:0;background:#fdfcf0;
+            padding:0 10px;border-bottom:1px solid #eee;">
+            <button id="nav-tab-surah"
+                style="flex:1;padding:12px;border:none;background:var(--orange,#ff851b);
+                color:white;font-weight:bold;border-radius:10px 10px 0 0;
+                margin:0 2px;font-size:14px;cursor:pointer;">📖 السور</button>
+            <button id="nav-tab-juz"
+                style="flex:1;padding:12px;border:none;background:#eee;color:#555;
+                font-weight:bold;border-radius:10px 10px 0 0;
+                margin:0 2px;font-size:14px;cursor:pointer;">📑 الأجزاء</button>
+            <button id="nav-tab-ayah"
+                style="flex:1;padding:12px;border:none;background:#eee;color:#555;
+                font-weight:bold;border-radius:10px 10px 0 0;
+                margin:0 2px;font-size:14px;cursor:pointer;">🔢 آية</button>
+        </div>
+
+        <div id="nav-tab-content"
+            style="flex:1;overflow-y:auto;padding:10px;background:white;">
+            ${buildSurahListNav('')}
+        </div>`;
+
+    document.body.appendChild(panel);
+
+    // ✅ كل الأحداث بـ addEventListener بعد الـ append
+    document.getElementById('nav-close-btn')
+        .addEventListener('click', () => panel.remove());
+
+    document.getElementById('nav-unified-search')
+        .addEventListener('input', function() { navUnifiedSearch(this.value); });
+
+    document.getElementById('nav-tab-surah')
+        .addEventListener('click', () => switchNavTab('surah'));
+    document.getElementById('nav-tab-juz')
+        .addEventListener('click', () => switchNavTab('juz'));
+    document.getElementById('nav-tab-ayah')
+        .addEventListener('click', () => switchNavTab('ayah'));
+
+    // ✅ Event delegation للنتائج الديناميكية
+    document.getElementById('nav-tab-content')
+        .addEventListener('click', (e) => {
+            const item = e.target.closest('[data-navto]');
+            if (!item) return;
+            const p = parseInt(item.dataset.navto);
+            currentMushafPage = p;
+            panel.remove();
+            if (document.getElementById('mushaf-overlay')) renderMushaf();
+            else openMushaf(mushafMode);
+        });
+
+    setTimeout(() => document.getElementById('nav-unified-search')?.focus(), 350);
+}
+// ============================================================
+// ✅ البحث الموحد في الانتقال
+// ============================================================
+function navUnifiedSearch(query) {
+    const tabsBar = document.getElementById('nav-tabs-bar');
+    const content = document.getElementById('nav-tab-content');
+    if (!content) return;
+
+    const q = query.trim();
+
+    if (!q) {
+        if (tabsBar) tabsBar.style.display = 'flex';
+        content.innerHTML = buildSurahListNav('');
+        return;
+    }
+
+    if (tabsBar) tabsBar.style.display = 'none';
+
+    const qNorm = normalizeArabic(q);
+    const qNum  = parseInt(q);
+
+    const matchedSurahs = mushafSurahList.filter(s =>
+        normalizeArabic(s.name).includes(qNorm) ||
+        s.englishName.toLowerCase().includes(q.toLowerCase()) ||
+        (!isNaN(qNum) && s.number === qNum)
+    );
+
+    const matchedJuz = JUZ_NAMES.map((name, i) => ({ name, num: i+1, page: JUZ_PAGES[i] }))
+        .filter(j => normalizeArabic(j.name).includes(qNorm) || (!isNaN(qNum) && j.num === qNum));
+
+    const pageMatch = (!isNaN(qNum) && qNum >= 1 && qNum <= 604) ? qNum : null;
+
+    let html = '';
+
+    // ✅ data-navto بدل onclick string
+    if (pageMatch) {
+        html += `
+            <div style="padding:6px 10px;font-size:11px;color:#aaa;font-weight:bold;
+                background:#f9f9f9;border-radius:6px;margin-bottom:6px;">📄 صفحة مباشرة</div>
+            <div data-navto="${pageMatch}"
+                style="padding:12px 15px;margin-bottom:12px;background:#fff9f0;
+                border-radius:12px;border:2px solid var(--orange);cursor:pointer;
+                display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-weight:bold;color:var(--dark-blue);">انتقال سريع لصفحة ${pageMatch}</span>
+                <span style="font-size:12px;color:var(--orange);">ج${getJuzFromPage(pageMatch)}</span>
+            </div>`;
+    }
+
+    if (matchedSurahs.length > 0) {
+        html += `<div style="padding:6px 10px;font-size:11px;color:#aaa;font-weight:bold;
+            background:#f9f9f9;border-radius:6px;margin-bottom:6px;">📖 السور</div>`;
+        matchedSurahs.forEach(s => {
+            const pNum = SURAH_PAGES[s.number - 1];
+            html += `
+                <div data-navto="${pNum}"
+                    style="padding:12px 15px;border-bottom:1px solid #f0f0f0;cursor:pointer;
+                    display:flex;justify-content:space-between;align-items:center;background:white;">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <span style="width:24px;height:24px;background:var(--orange);color:white;
+                            border-radius:50%;display:flex;align-items:center;justify-content:center;
+                            font-size:10px;">${s.number}</span>
+                        <span style="font-family:'Amiri Quran',serif;font-size:18px;
+                            color:var(--dark-blue);">${s.name}</span>
+                    </div>
+                    <div style="color:var(--orange);font-weight:bold;font-size:13px;">ص ${pNum}</div>
+                </div>`;
+        });
+    }
+
+    if (matchedJuz.length > 0) {
+        html += `<div style="padding:6px 10px;font-size:11px;color:#aaa;font-weight:bold;
+            background:#f9f9f9;border-radius:6px;margin:12px 0 6px;">📑 الأجزاء</div>`;
+        matchedJuz.forEach(j => {
+            html += `
+                <div data-navto="${j.page}"
+                    style="padding:12px 15px;border-bottom:1px solid #f0f0f0;cursor:pointer;
+                    display:flex;justify-content:space-between;align-items:center;background:white;">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <span style="width:30px;height:30px;background:var(--dark-blue);
+                            color:var(--orange);border-radius:50%;display:flex;align-items:center;
+                            justify-content:center;font-size:12px;font-weight:bold;">${j.num}</span>
+                        <span style="font-weight:bold;color:var(--dark-blue);">الجزء ${j.num}</span>
+                    </div>
+                    <span style="color:var(--orange);font-weight:bold;">ص ${j.page}</span>
+                </div>`;
+        });
+    }
+
+    if (!html) {
+        html = `<div style="text-align:center;padding:40px;color:#ccc;">
+            <div style="font-size:40px;margin-bottom:10px;">🔍</div>
+            <div style="font-size:14px;">يا Mo، مفيش نتائج لـ "${q}"</div></div>`;
+    }
+
+    content.innerHTML = html;
+    // ملحوظة: الـ event delegation موجود على content من showMushafNav ✅
+}
+// ============================================================
+// ✅ بناء عناصر القوائم
+// ============================================================
+function buildSurahNavItem(s, highlight = '') {
+    const pageNum = SURAH_PAGES[s.number - 1];
+    const name = highlight
+        ? s.name.replace(new RegExp(highlight, 'g'),
+            m => `<mark style="background:rgba(255,133,27,0.3);border-radius:2px;">${m}</mark>`)
+        : s.name;
+    // ✅ data-navto بدل onclick
+    return `
+        <div data-navto="${pageNum}"
+            style="padding:12px 15px;border-bottom:1px solid #f0f0f0;cursor:pointer;
+            display:flex;justify-content:space-between;align-items:center;border-radius:8px;background:white;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:30px;height:30px;background:var(--orange,#ff851b);border-radius:50%;
+                    display:flex;align-items:center;justify-content:center;
+                    color:white;font-size:11px;font-weight:bold;flex-shrink:0;">${s.number}</div>
+                <div>
+                    <div style="font-family:'Amiri Quran',serif;font-size:18px;
+                        color:var(--dark-blue,#001f3f);direction:rtl;">${name}</div>
+                    <div style="font-size:11px;color:#999;">${s.englishName} • ${s.numberOfAyahs} آية</div>
+                </div>
+            </div>
+            <div style="text-align:center;font-size:11px;">
+                <div style="color:var(--orange,#ff851b);font-weight:bold;">ص ${pageNum}</div>
+                <div style="color:#aaa;font-size:10px;">ج ${getJuzFromPage(pageNum)}</div>
+            </div>
+        </div>`;
+}
+
+function buildJuzNavItem(j, highlight = '') {
+    const name = highlight
+        ? j.name.replace(new RegExp(highlight, 'g'),
+            m => `<mark style="background:rgba(255,133,27,0.3);border-radius:2px;">${m}</mark>`)
+        : j.name;
+    // ✅ data-navto بدل onclick
+    return `
+        <div data-navto="${j.page}"
+            style="padding:12px 15px;border-bottom:1px solid #f0f0f0;cursor:pointer;
+            display:flex;justify-content:space-between;align-items:center;border-radius:8px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:34px;height:34px;background:var(--dark-blue,#001f3f);border-radius:50%;
+                    display:flex;align-items:center;justify-content:center;
+                    color:var(--orange,#ff851b);font-size:13px;font-weight:bold;">${j.num}</div>
+                <div>
+                    <div style="font-weight:bold;color:var(--dark-blue,#001f3f);font-size:14px;">الجزء ${j.num}</div>
+                    <div style="font-size:12px;color:#888;font-family:'Amiri Quran',serif;">${name}...</div>
+                </div>
+            </div>
+            <div style="font-size:12px;color:var(--orange,#ff851b);font-weight:bold;">ص ${j.page}</div>
+        </div>`;
+}
+function buildSurahListNav(filter = '') {
+    if (!mushafSurahList.length)
+        return '<div style="text-align:center;padding:20px;color:#aaa;">⏳</div>';
+    const filtered = filter
+        ? mushafSurahList.filter(s =>
+            s.name.includes(filter) ||
+            s.englishName.toLowerCase().includes(filter.toLowerCase()) ||
+            String(s.number).includes(filter))
+        : mushafSurahList;
+    // ✅ id على الـ input وعلى حاوية النتائج بدون oninput
+    return `
+        <div style="padding:8px 4px 10px;">
+            <input id="surah-nav-search" type="text" placeholder="🔍 ابحث في السور..."
+                value="${filter}"
+                style="width:100%;padding:8px 12px;border-radius:10px;
+                border:1px solid #ddd;font-size:13px;direction:rtl;outline:none;
+                box-sizing:border-box;font-family:'Amiri Quran',serif;background:#f9f9f9;">
+        </div>
+        <div id="surah-nav-items">
+            ${filtered.length === 0
+                ? '<div style="text-align:center;padding:20px;color:#aaa;">لا نتائج</div>'
+                : filtered.map(s => buildSurahNavItem(s, filter)).join('')}
+        </div>`;
+}
+
+function buildJuzListNav(filter = '') {
+    const all = JUZ_NAMES.map((name, i) => ({ name, num: i+1, page: JUZ_PAGES[i] }));
+    const filtered = filter
+        ? all.filter(j => j.name.includes(filter) || String(j.num).includes(filter))
+        : all;
+    // ✅ نفس الأسلوب
+    return `
+        <div style="padding:8px 4px 10px;">
+            <input id="juz-nav-search" type="text" placeholder="🔍 ابحث في الأجزاء..."
+                value="${filter}"
+                style="width:100%;padding:8px 12px;border-radius:10px;
+                border:1px solid #ddd;font-size:13px;direction:rtl;outline:none;
+                box-sizing:border-box;font-family:'Amiri Quran',serif;background:#f9f9f9;">
+        </div>
+        <div id="juz-nav-items">
+            ${filtered.length === 0
+                ? '<div style="text-align:center;padding:20px;color:#aaa;">لا نتائج</div>'
+                : filtered.map(j => buildJuzNavItem(j, filter)).join('')}
+        </div>`;
+}
+function switchNavTab(tab) {
+    const searchInput = document.getElementById('nav-unified-search');
+    const tabsBar     = document.getElementById('nav-tabs-bar');
+    if (searchInput) searchInput.value = '';
+    if (tabsBar) tabsBar.style.display = 'flex';
+
+    ['surah','juz','ayah'].forEach(t => {
+        const btn = document.getElementById(`nav-tab-${t}`);
+        if (btn) {
+            btn.style.background = t === tab ? 'var(--orange,#ff851b)' : '#f5f5f5';
+            btn.style.color      = t === tab ? 'white' : '#333';
+        }
+    });
+
+    const c = document.getElementById('nav-tab-content');
+    if (!c) return;
+
+    if (tab === 'surah') {
+        c.innerHTML = buildSurahListNav('');
+        // ✅ ربط البحث بعد innerHTML
+        document.getElementById('surah-nav-search')?.addEventListener('input', function() {
+            const val      = this.value;
+            const filtered = val
+                ? mushafSurahList.filter(s =>
+                    s.name.includes(val) ||
+                    s.englishName.toLowerCase().includes(val.toLowerCase()) ||
+                    String(s.number).includes(val))
+                : mushafSurahList;
+            const items = document.getElementById('surah-nav-items');
+            if (items) items.innerHTML = filtered.length === 0
+                ? '<div style="text-align:center;padding:20px;color:#aaa;">لا نتائج</div>'
+                : filtered.map(s => buildSurahNavItem(s, val)).join('');
+        });
+    }
+
+    if (tab === 'juz') {
+        c.innerHTML = buildJuzListNav('');
+        // ✅ ربط البحث بعد innerHTML
+        document.getElementById('juz-nav-search')?.addEventListener('input', function() {
+            const val = this.value;
+            const all = JUZ_NAMES.map((name, i) => ({ name, num: i+1, page: JUZ_PAGES[i] }));
+            const filtered = val
+                ? all.filter(j => j.name.includes(val) || String(j.num).includes(val))
+                : all;
+            const items = document.getElementById('juz-nav-items');
+            if (items) items.innerHTML = filtered.length === 0
+                ? '<div style="text-align:center;padding:20px;color:#aaa;">لا نتائج</div>'
+                : filtered.map(j => buildJuzNavItem(j, val)).join('');
+        });
+    }
+
+    if (tab === 'ayah') {
+        c.innerHTML = buildAyahPicker();
+        // ✅ ربط كل أحداث الـ ayah picker
+        document.getElementById('surah-picker-search')?.addEventListener('input', function() {
+            filterAyahSurahList(this.value);
+        });
+        document.getElementById('goto-ayah-btn')?.addEventListener('click', goToAyah);
+
+        // ✅ Event delegation لاختيار السورة
+        document.getElementById('ayah-surah-picker-list')?.addEventListener('click', (e) => {
+            const item = e.target.closest('[data-surah-num]');
+            if (!item) return;
+            selectAyahSurah(
+                parseInt(item.dataset.surahNum),
+                item.dataset.surahName,
+                parseInt(item.dataset.ayahCount)
+            );
+        });
+    }
+}
+// ============================================================
+// ✅ منتقي الآية مع قائمة سور قابلة للبحث
+// ============================================================
+function buildAyahPicker() {
+    ayahPickerSelectedSurah = 1;
+    // ✅ بدون oninput و onclick
+    return `
+        <div style="padding:15px;direction:rtl;">
+            <label style="font-weight:bold;color:var(--dark-blue,#001f3f);font-size:13px;
+                display:block;margin-bottom:8px;">📖 السورة</label>
+            <div style="border:2px solid var(--orange,#ff851b);border-radius:12px;
+                overflow:hidden;margin-bottom:15px;">
+                <input type="text" id="surah-picker-search" placeholder="🔍 ابحث عن سورة..."
+                    style="width:100%;padding:10px 12px;border:none;border-bottom:1px solid #eee;
+                    font-size:14px;direction:rtl;outline:none;box-sizing:border-box;
+                    font-family:'Amiri Quran',serif;background:#fffcf5;">
+                <div id="ayah-surah-picker-list"
+                    style="max-height:180px;overflow-y:auto;background:white;">
+                    ${buildAyahSurahItems(mushafSurahList)}
+                </div>
+            </div>
+            <div id="ayah-selected-surah-label"
+                style="text-align:center;padding:8px;background:#fff9f0;
+                border-radius:8px;border:1px solid var(--orange,#ff851b);
+                font-family:'Amiri Quran',serif;font-size:16px;
+                color:var(--dark-blue,#001f3f);margin-bottom:15px;font-weight:bold;">
+                ✅ الفاتحة (7 آيات)
+            </div>
+            <label style="font-weight:bold;color:var(--dark-blue,#001f3f);font-size:13px;
+                display:block;margin-bottom:8px;">🔢 رقم الآية</label>
+            <input type="number" id="ayah-num-input" min="1" max="7" value="1"
+                style="width:100%;padding:10px;border-radius:10px;
+                border:2px solid var(--orange,#ff851b);font-size:16px;
+                text-align:center;box-sizing:border-box;margin-bottom:6px;">
+            <div id="ayah-max-label"
+                style="font-size:11px;color:#aaa;text-align:center;margin-bottom:15px;">
+                من 1 إلى 7
+            </div>
+            <!-- ✅ id بدل onclick -->
+            <button id="goto-ayah-btn"
+                style="width:100%;padding:14px;background:var(--orange,#ff851b);
+                color:white;border:none;border-radius:12px;
+                font-size:16px;font-weight:bold;cursor:pointer;">
+                انتقل إلى الآية ✨
+            </button>
+        </div>`;
+}
+
+function buildAyahSurahItems(list) {
+    // ✅ data-* بدل onclick
+    return list.map(s => `
+        <div data-surah-num="${s.number}"
+            data-surah-name="${s.name}"
+            data-ayah-count="${s.numberOfAyahs}"
+            id="ayah-surah-item-${s.number}"
+            style="padding:10px 14px;border-bottom:1px solid #f5f5f5;cursor:pointer;
+            display:flex;justify-content:space-between;align-items:center;
+            background:${s.number === ayahPickerSelectedSurah ? '#fff9f0' : 'white'};">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span style="width:22px;height:22px;background:var(--orange,#ff851b);border-radius:50%;
+                    display:flex;align-items:center;justify-content:center;
+                    color:white;font-size:10px;font-weight:bold;flex-shrink:0;">${s.number}</span>
+                <span style="font-family:'Amiri Quran',serif;font-size:16px;
+                    color:var(--dark-blue,#001f3f);">${s.name}</span>
+            </div>
+            <span style="font-size:11px;color:#aaa;">${s.numberOfAyahs} آية</span>
+        </div>`).join('');
+}
+
+function filterAyahSurahList(query) {
+    const list = document.getElementById('ayah-surah-picker-list');
+    if (!list) return;
+    const filtered = query
+        ? mushafSurahList.filter(s =>
+            s.name.includes(query) ||
+            s.englishName.toLowerCase().includes(query.toLowerCase()) ||
+            String(s.number).includes(query))
+        : mushafSurahList;
+    list.innerHTML = buildAyahSurahItems(filtered);
+    // ✅ إعادة ربط delegation بعد تحديث الـ innerHTML
+    list.onclick = null;
+}
+function selectAyahSurah(num, name, ayahCount) {
+    ayahPickerSelectedSurah = num;
+
+    const label = document.getElementById('ayah-selected-surah-label');
+    const input = document.getElementById('ayah-num-input');
+    const maxLbl= document.getElementById('ayah-max-label');
+    if (label) label.textContent = `✅ ${name} (${ayahCount} آيات)`;
+    if (input) { input.max = ayahCount; input.value = 1; }
+    if (maxLbl) maxLbl.textContent = `من 1 إلى ${ayahCount}`;
+
+    document.querySelectorAll('[id^="ayah-surah-item-"]').forEach(el => {
+        el.style.background = 'white';
+    });
+    const selected = document.getElementById(`ayah-surah-item-${num}`);
+    if (selected) selected.style.background = '#fff9f0';
+
+    const searchInput = document.getElementById('surah-picker-search');
+    if (searchInput) searchInput.value = '';
+    filterAyahSurahList('');
+}
+
+async function goToAyah() {
+    const ayahNum = parseInt(document.getElementById('ayah-num-input')?.value);
+    if (isNaN(ayahPickerSelectedSurah) || isNaN(ayahNum)) return;
+    try {
+        const res  = await fetch(`https://api.alquran.cloud/v1/ayah/${ayahPickerSelectedSurah}:${ayahNum}`);
+        const json = await res.json();
+        if (json.code === 200) {
+            document.getElementById('mushaf-nav-panel')?.remove();
+            goToSearchResult(json.data.page, ayahPickerSelectedSurah, ayahNum);
+        }
+    } catch { alert('تحقق من الإنترنت'); }
+}
+
+// ============================================================
+// ✅ البحث الفازي مع اوبشن الإعادة
+// ============================================================
+function normalizeArabic(text) {
+    if (!text) return "";
+    return text
+        .replace(/[أإآا]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/ى/g, 'ي')
+        .replace(/[\u064B-\u065F]/g, '') // حذف التشكيل (فتحة، ضمة، إلخ)
+        .trim();
+}
+let mushafSearchTimer = null;
+async function mushafFuzzySearch(value) {
+    clearTimeout(mushafSearchTimer);
+    const resultsDiv = document.getElementById('mushaf-search-results');
+    if (!resultsDiv) return;
+
+    const query = value.trim();
+    if (!query || query.length < 2) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.style.display = 'block';
+    resultsDiv.innerHTML = '<div style="padding:15px;text-align:center;color:var(--orange);font-size:14px;">⏳ جاري البحث...</div>';
+
+    mushafSearchTimer = setTimeout(async () => {
+        try {
+            const normalizedQuery = normalizeArabic(query);
+            const res  = await fetch(`https://api.alquran.cloud/v1/search/${encodeURIComponent(normalizedQuery)}/all/quran-simple-clean`);
+            const json = await res.json();
+            const matches = json?.data?.matches || [];
+
+            if (matches.length === 0) {
+                resultsDiv.innerHTML = `<div style="padding:20px;text-align:center;color:#999;direction:rtl;">
+                    لم نجد آية تحتوي على "${query}" 🔍</div>`;
+                return;
+            }
+
+            // ✅ header بدون onclick
+            let html = `
+                <div style="padding:8px 12px;background:#fff9f0;border-bottom:1px solid #eee;
+                    display:flex;justify-content:space-between;align-items:center;
+                    position:sticky;top:0;z-index:1001;">
+                    <span style="font-weight:bold;color:var(--dark-blue);font-size:12px;">
+                        وجدنا ${matches.length} آية</span>
+                    <div id="close-search-results"
+                        style="cursor:pointer;color:#999;font-size:20px;padding:0 5px;">✕</div>
+                </div>`;
+
+            // ✅ data-* بدل onclick على كل نتيجة
+            html += matches.slice(0, 25).map(m => {
+                const sNum  = parseInt(m.surah.number);
+                const aNum  = parseInt(m.numberInSurah);
+                const sName = m.surah.name;
+                return `
+                    <div data-search-surah="${sNum}" data-search-ayah="${aNum}"
+                        style="padding:18px 12px;border-bottom:1px solid #f0f0f0;
+                        cursor:pointer;background:white;direction:rtl;
+                        -webkit-tap-highlight-color:transparent;">
+                        <div style="font-family:'Amiri Quran',serif;font-size:19px;
+                            color:#1a1a2e;line-height:1.7;margin-bottom:8px;pointer-events:none;">
+                            ${highlightMatch(m.text, query)}
+                        </div>
+                        <div style="font-size:11px;display:flex;justify-content:space-between;
+                            align-items:center;pointer-events:none;">
+                            <span style="color:var(--orange);font-weight:bold;
+                                background:rgba(255,133,27,0.1);padding:3px 10px;border-radius:15px;">
+                                📍 ${sName} [${aNum}]
+                            </span>
+                            <span style="color:#888;font-weight:bold;">الانتقال للآية ⬅️</span>
+                        </div>
+                    </div>`;
+            }).join('');
+
+            resultsDiv.innerHTML = html;
+
+            // ✅ Event delegation بعد innerHTML
+            document.getElementById('close-search-results')
+                ?.addEventListener('click', () => { resultsDiv.style.display = 'none'; });
+
+            resultsDiv.addEventListener('click', function handler(e) {
+                const item = e.target.closest('[data-search-surah]');
+                if (!item) return;
+                goToAyahFromSearch(
+                    parseInt(item.dataset.searchSurah),
+                    parseInt(item.dataset.searchAyah)
+                );
+            });
+
+        } catch (err) {
+            console.error('Search Error:', err);
+            resultsDiv.innerHTML = `<div style="padding:20px;text-align:center;color:#e74c3c;">
+                ⚠️ خطأ في الاتصال، حاول مرة أخرى</div>`;
+        }
+    }, 600);
+}
+function highlightMatch(text, query) {
+    try {
+        const norm = normalizeArabic(query);
+        return text.replace(new RegExp(norm, 'gi'),
+            m => `<mark style="background:rgba(255,133,27,0.4);border-radius:3px;
+                padding:1px 3px;font-weight:bold;">${m}</mark>`
+        );
+    } catch { return text; }
+}
+
+// ✅ الدالة الجديدة: بتجيب الصفحة الدقيقة من الـ API وتنقل المستخدم
+async function goToAyahFromSearch(surahNum, ayahNum) {
+    const resultsDiv = document.getElementById('mushaf-search-results');
+    if (resultsDiv) resultsDiv.style.display = 'none';
+
+    // لو المصحف مفتوح، نوري لودر مكانه
+    const container = document.getElementById('mushaf-page-content');
+    if (container) {
+        container.innerHTML = '<div style="text-align:center;padding-top:35%;"><div style="font-size:35px;animation:spin 1s linear infinite;">⏳</div><div style="color:#aaa;font-size:12px;margin-top:10px;">جاري توجيهك للآية...</div></div>';
+    }
+
+    try {
+        // نطلب بيانات الآية دي بالظبط عشان نجيب الـ page بتاعها
+        const res = await fetch(`https://api.alquran.cloud/v1/ayah/${surahNum}:${ayahNum}`);
+        const json = await res.json();
+        
+        if (json.code === 200 && json.data && json.data.page) {
+            // لقينا الصفحة الدقيقة، ننقل المستخدم فوراً
+            goToSearchResult(json.data.page, surahNum, ayahNum);
+        } else {
+            // لو الـ API خرف، نستخدم الحل الاحتياطي (بداية السورة)
+            goToSearchResult(SURAH_PAGES[surahNum - 1], surahNum, ayahNum);
+        }
+    } catch (err) {
+        console.error("Error fetching exact ayah page:", err);
+        // في حالة قطع النت، نستخدم الحل الاحتياطي
+        goToSearchResult(SURAH_PAGES[surahNum - 1], surahNum, ayahNum);
+    }
+}
+// ============================================================
+// ✅ اختيار الشيخ
+// ============================================================
+function showReciterPicker() {
+    document.getElementById('reciter-panel')?.remove();
+    const panel = document.createElement('div');
+    panel.id = 'reciter-panel';
+    panel.style.cssText = `position:fixed;bottom:0;left:0;right:0;z-index:10040;
+        background:white;border-radius:20px 20px 0 0;
+        box-shadow:0 -5px 30px rgba(0,0,0,0.4);
+        max-height:60vh;display:flex;flex-direction:column;`;
+
+    // ✅ بدون أي onclick أو oninput
+    panel.innerHTML = `
+        <div style="padding:15px 20px;background:var(--dark-blue,#001f3f);
+            border-radius:20px 20px 0 0;flex-shrink:0;
+            display:flex;align-items:center;justify-content:space-between;">
+            <span style="color:var(--orange,#ff851b);font-weight:bold;font-size:16px;">🎙️ اختر الشيخ</span>
+            <div id="reciter-close-btn"
+                style="color:white;font-size:22px;cursor:pointer;">✕</div>
+        </div>
+        <div style="padding:10px 12px;flex-shrink:0;border-bottom:1px solid #eee;">
+            <input id="reciter-search-input" type="text" placeholder="🔍 ابحث عن شيخ..."
+                style="width:100%;padding:8px 12px;border-radius:10px;
+                border:2px solid var(--orange,#ff851b);font-size:14px;
+                direction:rtl;outline:none;box-sizing:border-box;">
+        </div>
+        <div id="reciter-list" style="flex:1;overflow-y:auto;padding:8px;">
+            ${buildReciterList(Object.entries(RECITERS))}
+        </div>`;
+
+    document.body.appendChild(panel);
+
+    // ✅ كل الأحداث بـ addEventListener
+    document.getElementById('reciter-close-btn')
+        .addEventListener('click', () => panel.remove());
+
+    document.getElementById('reciter-search-input')
+        .addEventListener('input', function() { filterReciters(this.value); });
+
+    // ✅ Event delegation على القائمة
+    document.getElementById('reciter-list')
+        .addEventListener('click', (e) => {
+            const item = e.target.closest('[data-reciter-key]');
+            if (!item) return;
+            selectReciter(item.dataset.reciterKey);
+        });
+}
+
+function buildReciterList(entries) {
+    // ✅ data-reciter-key بدل onclick
+    return entries.map(([k, v]) => `
+        <div data-reciter-key="${k}"
+            style="padding:12px 15px;border-bottom:1px solid #f5f5f5;cursor:pointer;
+            display:flex;align-items:center;justify-content:space-between;
+            background:${k === currentReciter ? '#fff9f0' : 'white'};
+            border-right:${k === currentReciter ? '4px solid var(--orange,#ff851b)' : '4px solid transparent'};
+            border-radius:8px;margin-bottom:2px;">
+            <span style="font-size:15px;color:var(--dark-blue,#001f3f);
+                font-weight:${k === currentReciter ? 'bold' : 'normal'};">${v}</span>
+            ${k === currentReciter ? '<span style="color:var(--orange,#ff851b);font-size:18px;">✓</span>' : ''}
+        </div>`).join('');
+}
+
+function filterReciters(query) {
+    const list = document.getElementById('reciter-list');
+    if (!list) return;
+    const filtered = Object.entries(RECITERS).filter(([k, v]) =>
+        v.includes(query) || k.toLowerCase().includes(query.toLowerCase()));
+    list.innerHTML = buildReciterList(filtered);
+    // Delegation موجود على list من showReciterPicker ✅
+}
+function selectReciter(key) {
+    currentReciter = key;
+    const label = document.getElementById('current-reciter-label');
+    if (label) label.textContent = RECITERS[key].replace('🎙️ ','');
+    document.getElementById('reciter-panel')?.remove();
+    stopAudio();
+}
+
+// ============================================================
+// ✅ تشغيل الصوت
+// ============================================================
+function playAyah(surah, ayahNum) {
+    const btn = document.getElementById(`play-btn-${surah}-${ayahNum}`);
+    if (currentAudio && !currentAudio.paused) {
+        stopAudio();
+        document.querySelectorAll('[id^="play-btn-"]').forEach(b => b.innerHTML='▶️');
+        return;
+    }
+    stopAudio();
+    const s   = String(surah).padStart(3,'0');
+    const a   = String(ayahNum).padStart(3,'0');
+    currentAudio = new Audio(`https://everyayah.com/data/${currentReciter}/${s}${a}.mp3`);
+    currentAudio.play().catch(() => {
+        if(btn){btn.innerHTML='❌';setTimeout(()=>{if(btn)btn.innerHTML='▶️';},2000);}
+    });
+    if(btn) btn.innerHTML='⏸️';
+    currentAudio.onended=()=>{if(btn)btn.innerHTML='▶️';currentAudio=null;};
+    currentAudio.onerror=()=>{
+        if(btn){btn.innerHTML='❌';setTimeout(()=>{if(btn)btn.innerHTML='▶️';},2000);}
+        currentAudio=null;
+    };
+}
+
+function stopAudio() {
+    if(currentAudio){currentAudio.pause();currentAudio.src='';currentAudio=null;}
+}
+
+// ============================================================
+// ✅ بوكمارك الصفحة
+// ============================================================
+async function togglePageBookmark() {
+    const exists = quranBookmarks.find(
+        b => b.page===currentMushafPage && b.mode===mushafMode && !b.ayah_number
+    );
+    if(exists){
+        await _supabase.from('quran_bookmarks').delete().eq('id',exists.id);
+    } else {
+        await _supabase.from('quran_bookmarks').insert({
+            owner_name:currentUser, page:currentMushafPage, mode:mushafMode, note:''
+        });
+    }
+    await fetchQuranBookmarks();
+    renderMushaf();
+}
+
+// ============================================================
+// ✅ بوكمارك الآية
+// ============================================================
+async function toggleAyahBookmark(surahNum, surahName, ayahNum, ayahText) {
+    const btn = document.getElementById(`ayah-bm-${surahNum}-${ayahNum}`);
+    if(btn) btn.style.opacity='0.5';
+    const exists = quranBookmarks.find(
+        b => Number(b.surah_number)===surahNum && Number(b.ayah_number)===ayahNum
+    );
+    if(exists){
+        await _supabase.from('quran_bookmarks').delete().eq('id',exists.id);
+    } else {
+        const {error} = await _supabase.from('quran_bookmarks').insert({
+            owner_name:currentUser, page:currentMushafPage, mode:mushafMode,
+            surah_number:surahNum, surah_name:surahName,
+            ayah_number:ayahNum, ayah_text:ayahText, note:''
+        });
+        if(error){console.error(error);if(btn)btn.style.opacity='1';return;}
+    }
+    await fetchQuranBookmarks();
+    updateSingleAyahUI(surahNum, ayahNum);
+}
+
+function updateSingleAyahUI(surahNum, ayahNum) {
+    const isBookmarked = quranBookmarks.some(
+        b => Number(b.surah_number)===surahNum && Number(b.ayah_number)===ayahNum
+    );
+    const container = document.getElementById(`ayah-${surahNum}-${ayahNum}`);
+    const btn       = document.getElementById(`ayah-bm-${surahNum}-${ayahNum}`);
+    if(container){
+        container.style.background  = isBookmarked?'rgba(255,133,27,0.1)':'transparent';
+    }
+    if(btn){
+        btn.style.opacity    = '1';
+        btn.innerHTML        = isBookmarked?'🔖':'🤍';
+    }
+}
+
+// ============================================================
+// ✅ عرض الفيفوريتس
+// ============================================================
+function showBookmarks() {
+    const old = document.getElementById('bookmarks-panel');
+    if (old) { old.remove(); return; }
+
+    if (!quranBookmarks.length) {
+        const msg = document.createElement('div');
+        msg.style.cssText = `position:fixed;bottom:80px;right:10px;z-index:10020;
+            background:white;border:2px solid var(--orange,#ff851b);border-radius:12px;
+            padding:15px 20px;font-size:14px;color:#999;
+            box-shadow:0 5px 20px rgba(0,0,0,0.2);`;
+        msg.textContent = 'مفيش علامات بعد 🔖';
+        document.body.appendChild(msg);
+        setTimeout(() => msg.remove(), 2000);
+        return;
+    }
+
+    const pageBookmarks = quranBookmarks.filter(b => !b.ayah_number);
+    const ayahBookmarks = quranBookmarks.filter(b =>  b.ayah_number);
+
+    const panel = document.createElement('div');
+    panel.id = 'bookmarks-panel';
+    panel.style.cssText = `position:fixed;bottom:72px;right:10px;z-index:10020;
+        background:white;border-radius:15px;padding:15px;
+        min-width:260px;max-width:320px;
+        box-shadow:0 10px 30px rgba(0,0,0,0.4);
+        border:2px solid var(--orange,#ff851b);max-height:380px;overflow-y:auto;`;
+
+    const title = document.createElement('div');
+    title.style.cssText = `font-weight:bold;color:var(--dark-blue,#001f3f);
+        margin-bottom:10px;text-align:center;font-size:14px;`;
+    title.textContent = '📚 علاماتك المرجعية';
+    panel.appendChild(title);
+
+    // ✅ صفحات بـ createElement + addEventListener
+    if (pageBookmarks.length) {
+        const label = document.createElement('div');
+        label.style.cssText = `font-size:11px;color:#aaa;margin-bottom:6px;font-weight:bold;`;
+        label.textContent = '📄 صفحات';
+        panel.appendChild(label);
+
+        pageBookmarks.forEach(b => {
+            const item = document.createElement('div');
+            item.style.cssText = `padding:10px 12px;margin-bottom:6px;background:#fff9f0;
+                border-radius:8px;border:1px solid var(--orange,#ff851b);cursor:pointer;`;
+            item.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-weight:bold;color:var(--dark-blue,#001f3f);">📄 صفحة ${b.page}</span>
+                    <span style="font-size:10px;color:var(--orange,#ff851b);">الجزء ${getJuzFromPage(b.page)}</span>
+                </div>
+                <div style="font-size:10px;color:#aaa;margin-top:3px;">
+                    ${b.mode === 'tahajjud' ? '🌙 تهجد' : '📖 قراءة'} • 
+                    ${new Date(b.created_at).toLocaleDateString('ar-EG')}
+                </div>`;
+            item.addEventListener('click', () => {
+                currentMushafPage = parseInt(b.page);
+                renderMushaf();
+                panel.remove();
+            });
+            panel.appendChild(item);
+        });
+    }
+
+    // ✅ آيات بـ createElement + addEventListener
+    if (ayahBookmarks.length) {
+        const label = document.createElement('div');
+        label.style.cssText = `font-size:11px;color:#aaa;margin:10px 0 6px;font-weight:bold;`;
+        label.textContent = '📌 آيات';
+        panel.appendChild(label);
+
+        ayahBookmarks.forEach(b => {
+            const item = document.createElement('div');
+            item.style.cssText = `padding:10px 12px;margin-bottom:6px;background:#f0fff4;
+                border-radius:8px;border:1px solid #27ae60;cursor:pointer;`;
+            item.innerHTML = `
+                <div style="font-family:'Amiri Quran',serif;font-size:14px;
+                    color:#1a1a2e;direction:rtl;line-height:1.6;">${b.ayah_text || ''}...</div>
+                <div style="display:flex;justify-content:space-between;
+                    align-items:center;margin-top:4px;">
+                    <span style="font-size:11px;color:#27ae60;font-weight:bold;">
+                        ${b.surah_name} : آية ${b.ayah_number}
+                    </span>
+                    <span style="font-size:10px;color:#aaa;">ص${b.page} • ج${getJuzFromPage(b.page)}</span>
+                </div>`;
+            item.addEventListener('click', () => {
+                goToSearchResult(b.page, b.surah_number, b.ayah_number);
+                panel.remove();
+            });
+            panel.appendChild(item);
+        });
+    }
+
+    document.body.appendChild(panel);
+
+    setTimeout(() => {
+        document.addEventListener('click', function cp(e) {
+            if (!panel.contains(e.target)) { panel.remove(); document.removeEventListener('click', cp); }
+        });
+    }, 100);
+}
+// ============================================================
+// ✅ دوال أساسية وإغلاق
+// ============================================================
+function closeMushaf() {
+    stopAudio();
+    ['mushaf-overlay','bookmarks-panel','mushaf-nav-panel','reciter-panel','ayah-action-menu'].forEach(id =>
+        document.getElementById(id)?.remove()
+    );
+    pendingHighlight = null;
+}
+
+function toggleTranslation() {
+    mushafShowTranslation = !mushafShowTranslation;
+    renderMushaf();
+}
+
+function changeMushafPage(dir) {
+    const p = currentMushafPage + dir;
+    if (p < 1 || p > 604) return;
+    currentMushafPage = p;
+    
+    // ✅ حفظ فوري في المتصفح
+    localStorage.setItem(`mushaf_last_page_${mushafMode}`, p);
+    
+    renderMushaf();
+}
+
+function jumpMushafPage(val) {
+    const p = parseInt(val);
+    if (isNaN(p) || p < 1 || p > 604) return; // تأمين كامل
+    
+    currentMushafPage = p; 
+    localStorage.setItem(`mushaf_last_page_${mushafMode}`, p);
+    
+    // لو المصحف مش مفتوح (يعني بتختار من الواجهة الرئيسية)
+    if (!document.getElementById('mushaf-overlay')) {
+        openMushaf(mushafMode || 'reading');
+    } else {
+        renderMushaf(); // تحديث فوري للشاشة
+    }
+}
+// ============================================================
+// ✅ رندر الشاشة الرئيسية للمصحف (لو مستخدمة كصفحة داخلية)
+// ============================================================
+// ============================================================
+// ✅ رندر الشاشة الرئيسية للمصحف (لو مستخدمة كصفحة داخلية)
+// ============================================================
+function renderMushafSelector() {
+    const sel = document.getElementById('mushaf-selector');
+    if (!sel) return;
+
+    const lastReading  = localStorage.getItem('mushaf_last_page_reading')  || 1;
+    const lastTahajjud = localStorage.getItem('mushaf_last_page_tahajjud') || 1;
+
+    // ✅ بدون أي onclick في الـ HTML
+    sel.innerHTML = `
+        <div id="card-reading" class="category-box"
+            style="border-color:#27ae60;display:flex;flex-direction:column;
+            align-items:center;gap:6px;cursor:pointer;
+            touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,0.1);">
+            <span style="font-size:30px;">📖</span>
+            <span style="font-weight:bold;">مصحف القراءة</span>
+            <span style="font-size:11px;opacity:0.6;">آخر صفحة: ${lastReading}</span>
+        </div>
+        <div id="card-tahajjud" class="category-box"
+            style="border-color:#8e44ad;background:#f5eeff;display:flex;
+            flex-direction:column;align-items:center;gap:6px;cursor:pointer;
+            touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,0.1);">
+            <span style="font-size:30px;">🌙</span>
+            <span style="font-weight:bold;">مصحف التهجد</span>
+            <span style="font-size:11px;opacity:0.6;">آخر صفحة: ${lastTahajjud}</span>
+        </div>
+    `;
+
+    // ✅ addEventListener بعد الـ innerHTML مباشرة
+    document.getElementById('card-reading') .addEventListener('click', () => openMushaf('reading'));
+    document.getElementById('card-tahajjud').addEventListener('click', () => openMushaf('tahajjud'));
+
+    if (typeof renderBookmarksPreview === 'function') {
+        renderBookmarksPreview();
+    }
+}
+
+// ✅ openBookmarkItem - آمن على Android
+window.openBookmarkItem = function(page, mode, surahNum, ayahNum) {
+    currentMushafPage = parseInt(page) || 1;
+    openMushaf(mode || 'reading');
+    if (ayahNum > 0) {
+        setTimeout(function() {
+            goToSearchResult(page, surahNum, ayahNum);
+        }, 300);
+    }
+};
+
+async function renderBookmarksPreview() {
+    const container = document.getElementById('mushaf-bookmarks-preview');
+    if (!container) return;
+
+    container.innerHTML = '<div style="text-align:center;color:var(--orange);font-size:12px;padding:10px;">⏳ جاري جلب العلامات المرجعية...</div>';
+
+    try {
+        await fetchQuranBookmarks();
+
+        if (!quranBookmarks || quranBookmarks.length === 0) {
+            container.innerHTML = `
+                <div style="background:rgba(255,255,255,0.5);padding:15px;border-radius:15px;
+                    text-align:center;color:#999;font-size:13px;border:1px dashed #ccc;">
+                    لا توجد علامات مرجعية محفوظة بعد 🔖
+                </div>`;
+            return;
+        }
+
+        // ✅ الـ wrapper بدون onclick
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = `background:white;border-radius:15px;padding:15px;
+            border:2px solid var(--orange,#ff851b);box-shadow:4px 4px 0 var(--orange,#ff851b);`;
+        wrapper.innerHTML = `
+            <div style="font-weight:bold;color:var(--dark-blue,#001f3f);
+                margin-bottom:12px;text-align:center;">
+                🔖 آخر علاماتك المرجعية
+            </div>`;
+
+        // ✅ كل bookmark كـ element منفصل مع addEventListener
+        quranBookmarks.slice(0, 6).forEach((b, i) => {
+            const p    = parseInt(b.page)         || 1;
+            const s    = parseInt(b.surah_number) || 1;
+            const a    = parseInt(b.ayah_number)  || 0;
+            const sName = b.surah_name || 'سورة';
+            const mode  = b.mode || 'reading';
+
+            const item = document.createElement('div');
+            item.style.cssText = `
+                padding:10px 12px; margin-bottom:8px;
+                background:${a > 0 ? '#f0fff4' : '#fff9f0'};
+                border-radius:10px;
+                border:1px solid ${a > 0 ? '#27ae60' : 'var(--orange,#ff851b)'};
+                cursor:pointer;
+                touch-action:manipulation;
+                -webkit-tap-highlight-color:rgba(0,0,0,0.1);
+            `;
+            item.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-weight:bold;color:var(--dark-blue,#001f3f);font-size:13px;">
+                        ${a > 0 ? `📌 ${sName} : ${a}` : `📄 صفحة ${p}`}
+                    </span>
+                    <span style="font-size:10px;color:var(--orange,#ff851b);font-weight:bold;">
+                        ج${getJuzFromPage(p)}
+                    </span>
+                </div>
+                <div style="font-size:10px;color:#aaa;margin-top:3px;
+                    display:flex;justify-content:space-between;">
+                    <span>${mode === 'tahajjud' ? '🌙 تهجد' : '📖 قراءة'}</span>
+                    <span>${new Date(b.created_at).toLocaleDateString('ar-EG')}</span>
+                </div>
+            `;
+
+            // ✅ addEventListener بدل onclick في الـ HTML
+            item.addEventListener('click', () => openBookmarkItem(p, mode, s, a));
+
+            wrapper.appendChild(item);
+        });
+
+        container.innerHTML = '';
+        container.appendChild(wrapper);
+
+    } catch (error) {
+        console.error('Error rendering bookmarks:', error);
+        container.innerHTML = '<div style="text-align:center;color:red;font-size:12px;">❌ فشل تحميل العلامات</div>';
+    }
+}
+async function showTafsir(surah, ayah) {
+    document.getElementById('ayah-action-menu')?.remove();
+    
+    // إظهار لودر
+    const loader = document.createElement('div');
+    loader.id = 'tafsir-loader';
+    loader.style.cssText = `position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:100000; background:white; padding:20px; border-radius:15px; box-shadow:0 0 20px rgba(0,0,0,0.2);`;
+    loader.innerHTML = "⏳ جاري تحميل التفسير...";
+    document.body.appendChild(loader);
+
+    try {
+        // نستخدم تفسير الميسر كمثال
+        const res = await fetch(`https://api.alquran.cloud/v1/ayah/${surah}:${ayah}/ar.jalalayn`);
+        const json = await res.json();
+        loader.remove();
+
+        if (json.code === 200) {
+            const tafsirText = json.data.text;
+            openArtModal(`تفسير الآية ${ayah}`, "📖", "", tafsirText, () => {}, 'text');
+            
+            // تعديل المودال ليناسب عرض نص طويل (التفسير)
+            setTimeout(() => {
+                const input = document.getElementById('artModalInput');
+                if (input) {
+                    const p = document.createElement('p');
+                    p.style.cssText = "direction:rtl; text-align:right; font-size:16px; line-height:1.6; color:#333; padding:10px;";
+                    p.innerText = tafsirText;
+                    input.parentNode.replaceChild(p, input);
+                    document.getElementById('artModalConfirm').innerText = "تم";
+                }
+            }, 10);
+        }
+    } catch (e) {
+        loader.innerHTML = "❌ فشل تحميل التفسير";
+        setTimeout(() => loader.remove(), 2000);
+    }
+}
+// ✅ تفعيل التحديث الفوري للبوكماركس
+_supabase
+    .channel('schema-db-changes')
+    .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'quran_bookmarks',
+        filter: `owner_name=eq.${currentUser}` 
+    }, (payload) => {
+        console.log('Realtime update received!', payload);
+        fetchQuranBookmarks().then(() => {
+            // تحديث واجهة المصحف لو مفتوحة
+            if (document.getElementById('mushaf-overlay')) {
+                renderMushaf();
+            }
+            // تحديث المعاينة في الشاشة الرئيسية
+            renderBookmarksPreview();
+        });
+    })
+    .subscribe();
+    initNavBehavior();
+   async function copyAyahText(surah, ayah) {
+    try {
+        const el = document.getElementById(`ayah-${surah}-${ayah}`);
+        const text = el ? el.innerText.replace(/[0-9]/g, '').trim() : "";
+        await navigator.clipboard.writeText(text);
+
+        // إظهار التنبيه الـ CSS
+        showCustomToast("تم نسخ الآية بنجاح ✅");
+        
+        if (typeof Android !== 'undefined') {
+            Android.showToast("تم النسخ ✅");
+        }
+    } catch (err) {
+        console.error("Copy failed", err);
+    }
+}
+
+// دالة إظهار التنبيه
+function showCustomToast(msg) {
+    // لو الرسالة مش موجودة في الصفحة، ننشئها
+    let toast = document.getElementById('custom-copy-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'custom-copy-toast';
+        toast.className = 'copy-toast';
+        document.body.appendChild(toast);
+    }
+    
+    toast.innerText = msg;
+    toast.classList.add('show');
+    
+    // تختفي بعد 2 ثانية
+    setTimeout(() => {
+        toast.classList.remove('show');
+    }, 2000);
+}
+
+// ===== window registrations للـ Android WebView (نسخة نظيفة بدون تكرار) =====
+window.openMushaf             = openMushaf;
+window.closeMushaf            = closeMushaf;
+window.renderMushaf           = renderMushaf;
+window.renderMushafSelector   = renderMushafSelector;
+window.renderBookmarksPreview = renderBookmarksPreview;
+window.changeMushafPage       = changeMushafPage;
+window.changeMushafZoom       = changeMushafZoom;
+window.jumpMushafPage         = jumpMushafPage;
+window.showMushafNav          = showMushafNav;
+window.switchNavTab           = switchNavTab;
+window.toggleTranslation      = toggleTranslation;
+window.togglePageBookmark     = togglePageBookmark;
+window.toggleMushafViewMode   = toggleMushafViewMode;
+window.showAyahMenu           = showAyahMenu;
+window.closeAyahMenu          = closeAyahMenu;
+window.toggleAyahBookmark     = toggleAyahBookmark;
+window.copyAyahText           = copyAyahText;
+window.playAyah               = playAyah;
+window.showTafsir             = showTafsir;
+window.showBookmarks          = showBookmarks;
+window.openBookmarkItem       = openBookmarkItem;
+window.goToSearchResult       = goToSearchResult;
+window.goToAyah               = goToAyah;
+window.selectAyahSurah        = selectAyahSurah;
+window.filterAyahSurahList    = filterAyahSurahList;
+window.mushafFuzzySearch      = mushafFuzzySearch;
+window.showReciterPicker      = showReciterPicker;
+window.selectReciter          = selectReciter;
+window.filterReciters         = filterReciters;
+window.navUnifiedSearch       = navUnifiedSearch;
+window.loadPageText           = loadPageText;
+window.navTo                  = (p) => {
+    currentMushafPage = parseInt(p);
+    document.getElementById('mushaf-nav-panel')?.remove();
+    if (document.getElementById('mushaf-overlay')) renderMushaf();
+    else openMushaf(mushafMode);
+};
+// ✅ دالة المودال لعرض التفسير أو التنبيهات
+function openArtModal(title, icon, placeholder, value, onConfirm, inputType = 'text') {
+    let modal = document.getElementById('artModal');
+    if (!modal) {
+        const m = `<div id="artModal" class="art-modal-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);display:none;align-items:center;justify-content:center;z-index:300000;backdrop-filter:blur(5px);">
+            <div class="art-modal-box" style="background:white;padding:25px;border-radius:20px;width:90%;max-width:350px;text-align:center;box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+                <div id="artModalIcon" style="font-size:45px;margin-bottom:10px;"></div>
+                <h3 id="artModalTitle" style="color:#001f3f;margin-bottom:15px;"></h3>
+                <div id="artModalInput" style="margin:15px 0; color:#333; direction:rtl; text-align:right; font-size:16px; line-height:1.6;"></div>
+                <button id="artModalConfirm" style="background:var(--orange,#ff851b);color:white;padding:12px 30px;border:none;border-radius:12px;cursor:pointer;font-weight:bold;font-size:16px;">تم</button>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', m);
+        modal = document.getElementById('artModal');
+    }
+    document.getElementById('artModalTitle').innerText = title;
+    document.getElementById('artModalIcon').innerText = icon;
+    
+    // تأمين زر التأكيد
+    document.getElementById('artModalConfirm').onclick = () => { 
+        modal.style.display = 'none'; 
+        if(typeof onConfirm === 'function') onConfirm(); 
+    };
+    
+    modal.style.display = 'flex';
+}
+
+// ✅ دالة التشغيل الموحدة (أهم جزء)
+window.onload = async () => {
+    try {
+        // 1. جلب البيانات الأساسية من السيرفر أولاً
+        await Promise.all([
+            fetchQuranBookmarks(), 
+            fetchSurahList()
+        ]);
+
+        // 2. رسم الواجهة الرئيسية (البوكسات)
+        renderMushafSelector(); 
+        
+        // 3. رسم معاينة العلامات المرجعية (البوكماركس)
+        renderBookmarksPreview();
+
+        console.log("Mushaf initialised successfully ✅");
+    } catch (err) {
+        console.error("Initialization failed:", err);
+    }
+};
+</script>
+</body>
+</html>
